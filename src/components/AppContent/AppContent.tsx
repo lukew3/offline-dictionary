@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { Routes, Route, useNavigate, useSearchParams } from 'react-router-dom'
-import initSqlJs from 'sql.js'
 import SearchHistory from '../../pages/SearchHistory/SearchHistory'
 import Bookmarks from '../../pages/Bookmarks/Bookmarks'
 import Study from '../../pages/Study/Study'
@@ -9,10 +8,10 @@ import Settings from '../../pages/Settings/Settings'
 import QueryResults from '../../pages/QueryResults/QueryResults'
 import SearchBar from '../../components/SearchBar/SearchBar'
 
-import { Definition, Database, SearchHistoryItem, HistoryCategory } from '../../interfaces'
+import { Definition, SearchHistoryItem, HistoryCategory } from '../../interfaces'
 import { useAtom } from 'jotai'
 import { historyAtom, databasesAtom, activeDatabaseAtom } from '../../atoms'
-import { isDatabaseCached } from '../../cacheUtils'
+import { dictClient, InstallState } from '../../db/dictClient'
 
 
 const AppContent = () => {
@@ -21,141 +20,56 @@ const AppContent = () => {
   const [history, setHistory] = useAtom(historyAtom)
   const [databases, setDatabases] = useAtom(databasesAtom)
   const [activeDatabase, setActiveDatabase] = useAtom(activeDatabaseAtom)
-  
-  
+
+
   const [error, setError] = useState<string>('')
   const [info, setInfo] = useState<string>('')
   const [definitions, setDefinitions] = useState<Definition[]>([])
   const [wordTitle, setWordTitle] = useState<string>('')
-  const [db, setDb] = useState<Database | null>(null)
-  const [isLoading, setIsLoading] = useState<boolean>(true)
-  const [progress, setProgress] = useState<number>(0)
+  const [installState, setInstallState] = useState<InstallState>(() => dictClient.installState())
 
+  const isReady = installState.state === 'done'
   const activeTab = window.location.pathname.slice(1) || 'history'
 
-  // Reconcile metadata with actual cache state on startup
   useEffect(() => {
-    const syncCacheState = async () => {
-      const updatedDatabases = await Promise.all(
-        databases.map(async (dbInfo) => {
-          const cached = await isDatabaseCached(dbInfo.filename)
-          if (dbInfo.downloaded && !cached) {
-            return { ...dbInfo, downloaded: false, enabled: false, lastUpdated: undefined }
-          }
-          if (!dbInfo.downloaded && cached) {
-            return { ...dbInfo, downloaded: true, enabled: true, lastUpdated: new Date().toISOString() }
-          }
-          return dbInfo
-        })
+    dictClient.start()
+    const unsubscribe = dictClient.onProgress(setInstallState)
+    return unsubscribe
+  }, [])
+
+  useEffect(() => {
+    if (!isReady) return
+    const wordnetDb = databases.find(db => db.filename === 'wordnet.ndjson')
+    if (wordnetDb && !wordnetDb.downloaded) {
+      const updatedDatabases = databases.map(db =>
+        db.filename === 'wordnet.ndjson'
+          ? { ...db, downloaded: true, enabled: true, lastUpdated: new Date().toISOString() }
+          : db
       )
-      const changed = updatedDatabases.some((dbInfo, i) => dbInfo !== databases[i])
-      if (changed) {
-        setDatabases(updatedDatabases)
+      setDatabases(updatedDatabases)
+      if (!activeDatabase) {
+        setActiveDatabase('wordnet-full')
       }
     }
-    syncCacheState()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [isReady, databases, activeDatabase])
 
-  useEffect(() => {
-    loadDatabase()
-  }, [])
-
-  // Sync database state when it loads successfully
-  useEffect(() => {
-    if (db && !isLoading) {
-      // Mark wordnetFull.db as downloaded if database is loaded
-      const wordnetDb = databases.find(db => db.filename === 'wordnetFull.db')
-      if (wordnetDb && !wordnetDb.downloaded) {
-        const updatedDatabases = databases.map(db => 
-          db.filename === 'wordnetFull.db' 
-            ? { ...db, downloaded: true, enabled: true, lastUpdated: new Date().toISOString() }
-            : db
-        )
-        setDatabases(updatedDatabases)
-        
-        // Set as active database if not already set
-        if (!activeDatabase) {
-          setActiveDatabase('wordnet-full')
-        }
-      }
-    }
-  }, [db, isLoading, databases, activeDatabase])
-
-  
-
-  // Handle legacy query parameter - redirect to word route if needed
   useEffect(() => {
     const wordParam = searchParams.get('word')
-    if (wordParam && !isLoading && !window.location.pathname.startsWith('/word/')) {
+    if (wordParam && isReady && !window.location.pathname.startsWith('/word/')) {
       navigate(`/word/${wordParam}`)
     }
-  }, [searchParams, isLoading, navigate])
-
-  const loadDatabase = async (): Promise<void> => {
-    try {
-      setIsLoading(true)
-      setProgress(0)
-
-      const SQL = await initSqlJs({
-        locateFile: (file: string) => `https://sql.js.org/dist/${file}`
-      })
-
-      setProgress(10)
-
-      const res = await fetch('wordnetFull.db')
-      if (!res.ok) throw new Error('Failed to fetch wordnet.db: ' + res.status)
-
-      const contentLength = res.headers.get('content-length')
-      const total = contentLength ? parseInt(contentLength, 10) : 0
-      let loaded = 0
-
-      const reader = res.body!.getReader()
-      const chunks: Uint8Array[] = []
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        chunks.push(value)
-        loaded += value.length
-        const percent = total > 0 ? Math.min((loaded / total) * 60 + 20, 80) : Math.min(loaded / 1000000 * 10 + 20, 80)
-        setProgress(percent)
-      }
-
-      const buffer = new Uint8Array(loaded)
-      let offset = 0
-      for (const chunk of chunks) {
-        buffer.set(chunk, offset)
-        offset += chunk.length
-      }
-
-      setProgress(90)
-
-      const database = new SQL.Database(buffer as any)
-      setDb(database as unknown as Database)
-      
-      setProgress(100)
-      setIsLoading(false)
-    } catch (e) {
-      setError('Error loading database')
-      setIsLoading(false)
-      console.error(e)
-    }
-  }
+  }, [searchParams, isReady, navigate])
 
   const handleNavItemClick = (item: string): void => {
-    // Clear search state when switching tabs
     setDefinitions([])
     setWordTitle('')
     setInfo('')
     setError('')
-    
-    // Navigate to the new route and clear word search param
+
     const newParams = new URLSearchParams(searchParams)
     newParams.delete('word')
     setSearchParams(newParams)
-    
+
     navigate(`/${item}`)
   }
 
@@ -170,13 +84,11 @@ const AppContent = () => {
   }
 
   const handleWordClick = (word: string, source?: string) => {
-    // Determine category based on source
     let category: HistoryCategory = 'link'
     if (source === 'history') {
       category = 'history-click'
     }
-    
-    // Add to history with appropriate category when clicking from history/bookmarks/study
+
     const newHistoryItem: SearchHistoryItem = {
       word,
       timestamp: new Date().toISOString(),
@@ -184,8 +96,7 @@ const AppContent = () => {
     }
     const newHistory = [newHistoryItem, ...history]
     setHistory(newHistory)
-    
-    // Navigate to word route with category parameter to prevent duplicate history creation
+
     const url = `/word/${encodeURIComponent(word)}`
     if (source === 'history') {
       navigate(`${url}?skipHistory=true`)
@@ -193,6 +104,10 @@ const AppContent = () => {
       navigate(url)
     }
   }
+
+  const installPercent = installState.total > 0
+    ? Math.round((installState.loaded / installState.total) * 100)
+    : 0
 
   return (
     <div className="container">
@@ -218,14 +133,21 @@ const AppContent = () => {
         </div>
       </nav>
 
-      <SearchBar
-        db={db}
-        isLoading={isLoading}
-      />
+      <SearchBar isReady={isReady} />
 
-      {isLoading && (
+      {!isReady && installState.state !== 'error' && (
         <div className="progress-container">
-          <div className="progress-text">Loading database ({Math.round(progress)}%)</div>
+          <div className="progress-text">
+            {installState.state === 'pending'
+              ? 'Preparing dictionary…'
+              : `Installing dictionary (${installPercent}%) — ${installState.loaded.toLocaleString()} / ${installState.total.toLocaleString()} words`}
+          </div>
+        </div>
+      )}
+
+      {installState.state === 'error' && (
+        <div className="progress-container">
+          <div className="progress-text">Install failed: {installState.error}</div>
         </div>
       )}
 
@@ -236,14 +158,13 @@ const AppContent = () => {
         <Route path="/" element={<SearchHistory onWordClick={handleWordClick} />} />
         <Route path="/history" element={<SearchHistory onWordClick={handleWordClick} />} />
         <Route path="/bookmarks" element={<Bookmarks onWordClick={handleWordClick} />} />
-        <Route path="/study" element={<Study db={db} />} />
+        <Route path="/study" element={<Study />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/word/:word" element={
           <QueryResults
             escapeHtml={escapeHtml}
             definitions={definitions}
             wordTitle={wordTitle}
-            db={db}
             setError={setError}
             setInfo={setInfo}
             setDefinitions={setDefinitions}

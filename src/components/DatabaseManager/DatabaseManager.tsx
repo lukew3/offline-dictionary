@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useAtom } from 'jotai'
 import { databasesAtom, downloadProgressAtom } from '../../atoms'
-import { deleteDatabaseFromCache } from '../../cacheUtils'
+import { dictClient } from '../../db/dictClient'
 
 import './DatabaseManager.css'
 
@@ -19,7 +19,7 @@ const DatabaseManager: React.FC = () => {
 
     setDeletingDb(databaseId)
     try {
-      await deleteDatabaseFromCache(database.filename)
+      await dictClient.wipe()
 
       const updatedDatabases = databases.map(db =>
         db.id === databaseId
@@ -27,6 +27,8 @@ const DatabaseManager: React.FC = () => {
           : db
       )
       setDatabases(updatedDatabases)
+      // Reload so the worker re-runs install on a fresh state.
+      window.location.reload()
     } catch (error) {
       console.error('Error deleting database:', error)
     } finally {

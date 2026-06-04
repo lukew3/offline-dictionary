@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import './QueryResults.css'
-import { Definition, Database, HistoryCategory } from '../../interfaces'
+import { Definition, HistoryCategory } from '../../interfaces'
 import DefinitionComponent from '../../components/Definition/Definition'
 import { performSearch, formatWordForDisplay } from '../../utils'
 import { useAtom } from 'jotai'
@@ -11,7 +11,6 @@ interface QueryResultsProps {
   escapeHtml: (str: string | null | undefined) => string
   definitions: Definition[]
   wordTitle: string
-  db: Database | null
   setError: (error: string) => void
   setInfo: (info: string) => void
   setDefinitions: (definitions: Definition[]) => void
@@ -22,7 +21,6 @@ const QueryResults = ({
   escapeHtml,
   definitions,
   wordTitle,
-  db,
   setError,
   setInfo,
   setDefinitions,
@@ -37,14 +35,13 @@ const QueryResults = ({
     const decodedWord = word ? decodeURIComponent(word) : null
     const categoryParam = searchParams.get('category') as HistoryCategory | null
     const skipHistoryParam = searchParams.get('skipHistory')
-    
-      // Only search if we have a word, database, and haven't searched for this word yet
-      if (decodedWord && db && searchedWord.current !== decodedWord) {
-        searchedWord.current = decodedWord
-        const skipHistory = categoryParam === 'book' || skipHistoryParam === 'true' // Skip history creation when coming from study mode or history
-        performSearch(decodedWord, db, setError, setInfo, setDefinitions, setWordTitle, history, setHistory, categoryParam || 'search', skipHistory)
-      }
-  }, [word, db, searchParams])
+
+    if (decodedWord && searchedWord.current !== decodedWord) {
+      searchedWord.current = decodedWord
+      const skipHistory = categoryParam === 'book' || skipHistoryParam === 'true'
+      performSearch(decodedWord, setError, setInfo, setDefinitions, setWordTitle, history, setHistory, categoryParam || 'search', skipHistory)
+    }
+  }, [word, searchParams])
 
   const displayWord = word ? formatWordForDisplay(decodeURIComponent(word)) : formatWordForDisplay(wordTitle)
 

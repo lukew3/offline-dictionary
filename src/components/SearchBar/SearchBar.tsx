@@ -1,30 +1,25 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Database } from '../../interfaces'
 import { getRandomWords } from '../../utils'
 
 interface SearchBarProps {
-  db: Database | null
-  isLoading: boolean
+  isReady: boolean
 }
 
-function SearchBar({ db, isLoading }: SearchBarProps) {
+function SearchBar({ isReady }: SearchBarProps) {
   const [localQuery, setLocalQuery] = useState<string>('')
   const navigate = useNavigate()
-  
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    e.preventDefault()
-    if (!db || !localQuery.trim()) return
 
-    // Navigate directly to word route - QueryResults component will handle the search
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
+    e.preventDefault()
+    if (!localQuery.trim()) return
+
     navigate(`/word/${encodeURIComponent(localQuery)}`)
     setLocalQuery('')
   }
 
   const handleRandomSearch = async (): Promise<void> => {
-    if (!db) return
-
-    const randomWords = getRandomWords(db, 1)
+    const randomWords = await getRandomWords(1)
     if (randomWords.length > 0) {
       const randomWord = randomWords[0].word
       navigate(`/word/${encodeURIComponent(randomWord)}?category=random`)
@@ -40,11 +35,11 @@ function SearchBar({ db, isLoading }: SearchBarProps) {
         placeholder="Enter exact word"
         required
       />
-      <button type="submit" disabled={isLoading}>Search</button>
-      <button 
-        type="button" 
+      <button type="submit">Search</button>
+      <button
+        type="button"
         onClick={handleRandomSearch}
-        disabled={isLoading}
+        disabled={!isReady}
         title="Random word"
         aria-label="Search for a random word"
       >

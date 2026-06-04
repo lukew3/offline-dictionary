@@ -1,12 +1,11 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { useAtom } from 'jotai'
 import { databasesAtom, downloadProgressAtom } from '../../atoms'
-import { downloadDatabase } from '../../cacheUtils'
 import './DatabaseSelector.css'
 
 const DatabaseSelector: React.FC = () => {
   const [databases, setDatabases] = useAtom(databasesAtom)
-  const [downloadProgress, setDownloadProgress] = useAtom(downloadProgressAtom)
+  const [downloadProgress] = useAtom(downloadProgressAtom)
   const [selectedDatabase, setSelectedDatabase] = useState<string>('')
   const [searchTerm, setSearchTerm] = useState('')
   const [isDownloading, setIsDownloading] = useState(false)
@@ -43,21 +42,11 @@ const DatabaseSelector: React.FC = () => {
     const database = databases.find(db => db.id === selectedDatabase)
     if (!database) return
 
+    // The dictionary now auto-installs on first app load via the dict worker.
+    // This UI is preserved as a status surface; clicking "download" simply
+    // marks the entry as downloaded once install has finished.
     setIsDownloading(true)
     try {
-      await downloadDatabase(database.filename, (loaded, total, _percentage) => {
-        setDownloadProgress(prev => ({
-          ...prev,
-          [database.id]: { loaded, total }
-        }))
-      })
-
-      setDownloadProgress(prev => {
-        const next = { ...prev }
-        delete next[database.id]
-        return next
-      })
-
       const updatedDatabases = databases.map(db =>
         db.id === selectedDatabase
           ? {
@@ -72,9 +61,6 @@ const DatabaseSelector: React.FC = () => {
       setSelectedDatabase('')
       setSearchTerm('')
       setShowDropdown(false)
-    } catch (error) {
-      console.error('Error downloading database:', error)
-      alert('Error downloading database. Please try again.')
     } finally {
       setIsDownloading(false)
     }

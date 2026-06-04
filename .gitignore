@@ -9,3 +9,6 @@ tasks.md
 # Local overrides
 *.local.*
 *.local
+
+# Build inputs (large source databases)
+data/

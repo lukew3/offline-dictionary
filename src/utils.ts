@@ -1,8 +1,8 @@
-import { Definition, Database, SearchHistoryItem, HistoryCategory } from './interfaces'
+import { Definition, SearchHistoryItem, HistoryCategory } from './interfaces'
+import { dictClient } from './db/dictClient'
 
 export const performSearch = async (
   searchQuery: string,
-  db: Database | null,
   setError: (error: string) => void,
   setInfo: (info: string) => void,
   setDefinitions: (definitions: Definition[]) => void,
@@ -12,25 +12,15 @@ export const performSearch = async (
   category?: HistoryCategory,
   skipHistory?: boolean
 ): Promise<void> => {
-  if (!db || !searchQuery.trim()) return
+  if (!searchQuery.trim()) return
 
   setError('')
   setDefinitions([])
   setWordTitle('')
   setInfo('Searching...')
-  // No longer need setActiveTab since we use React Router navigation
 
   try {
-    const tableName = 'words'
-    const stmtExact = db.prepare(`SELECT word, pos, definition FROM "${tableName}" WHERE lower(word) = $w;`)
-
-    const rows: Definition[] = []
-    stmtExact.bind({$w: searchQuery.toLowerCase()})
-    while(stmtExact.step()){
-      const row = stmtExact.getAsObject() as unknown as Definition
-      rows.push(row)
-    }
-    stmtExact.reset()
+    const rows = await dictClient.search(searchQuery)
 
     setDefinitions(rows)
     setWordTitle(searchQuery)
@@ -38,14 +28,13 @@ export const performSearch = async (
     if (rows.length === 0) {
       setInfo('No definitions found')
     } else if (history && setHistory && !skipHistory) {
-      // Add to search history if results were found and history is available (search bar, not history tab)
       const newHistoryItem: SearchHistoryItem = {
         word: searchQuery,
         timestamp: new Date().toISOString(),
         category: category || 'search'
       }
-      const newHistory = [newHistoryItem, ...history];
-      setHistory(newHistory);
+      const newHistory = [newHistoryItem, ...history]
+      setHistory(newHistory)
     }
   } catch(err){
     console.error(err)
@@ -55,8 +44,6 @@ export const performSearch = async (
 }
 
 export const removeBookmark = (bookmarks: Record<string, string[]>, word: string, definition: string) => {
-  // if word is found and definition is found in the word's bookmarks, update bookmarks with that entry removed
-  // if that was the words only entry, remove the word from bookmarks entirely
   if (bookmarks[word] && bookmarks[word].includes(definition)) {
     const newBookmarks = bookmarks[word].filter(def => def !== definition)
     if (newBookmarks.length === 0) {
@@ -85,71 +72,28 @@ export const checkBookmarked = (bookmarks: Record<string, string[]>, word: strin
   return bookmarks[word] && bookmarks[word].includes(definition)
 }
 
-export const getDefinitionsForWord = (db: Database | null, word: string): Definition[] => {
-  if (!db) return []
-  
+export const getDefinitionsForWord = async (word: string): Promise<Definition[]> => {
   try {
-    const stmt = db.prepare(`SELECT word, pos, definition FROM "words" WHERE lower(word) = $w;`)
-    const rows: Definition[] = []
-    stmt.bind({$w: word.toLowerCase()})
-    while(stmt.step()){
-      const row = stmt.getAsObject() as unknown as Definition
-      rows.push(row)
-    }
-    stmt.reset()
-    return rows
+    return await dictClient.search(word)
   } catch(err) {
     console.error('Error fetching definitions for word:', word, err)
     return []
   }
 }
 
-export const getDefinitionsForWords = (db: Database | null, words: string[]): Record<string, Definition[]> => {
-  if (!db || words.length === 0) return {}
-  
+export const getDefinitionsForWords = async (words: string[]): Promise<Record<string, Definition[]>> => {
+  if (words.length === 0) return {}
   try {
-    // Create a batch query using IN clause
-    const placeholders = words.map((_, index) => `$w${index}`).join(',')
-    const stmt = db.prepare(`SELECT word, pos, definition FROM "words" WHERE lower(word) IN (${placeholders});`)
-    
-    // Bind all words to the statement
-    const bindParams: Record<string, string> = {}
-    words.forEach((word, index) => {
-      bindParams[`$w${index}`] = word.toLowerCase()
-    })
-    stmt.bind(bindParams)
-    
-    // Group results by word
-    const results: Record<string, Definition[]> = {}
-    while(stmt.step()){
-      const row = stmt.getAsObject() as unknown as Definition
-      const word = row.word.toLowerCase()
-      if (!results[word]) {
-        results[word] = []
-      }
-      results[word].push(row)
-    }
-    stmt.reset()
-    return results
+    return await dictClient.getDefinitionsFor(words)
   } catch(err) {
     console.error('Error fetching definitions for words:', err)
     return {}
   }
 }
 
-export const getRandomWords = (db: Database | null, count: number = 50): Definition[] => {
-  if (!db) return []
-  
+export const getRandomWords = async (count: number = 50): Promise<Definition[]> => {
   try {
-    const stmt = db.prepare(`SELECT word, pos, definition FROM "words" ORDER BY RANDOM() LIMIT ?;`)
-    const rows: Definition[] = []
-    stmt.bind([count])
-    while(stmt.step()){
-      const row = stmt.getAsObject() as unknown as Definition
-      rows.push(row)
-    }
-    stmt.reset()
-    return rows
+    return await dictClient.getRandom(count)
   } catch(err) {
     console.error('Error fetching random words:', err)
     return []

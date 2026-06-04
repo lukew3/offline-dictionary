@@ -3,70 +3,65 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import './Study.css'
 import { useAtom } from 'jotai'
 import { historyAtom } from '../../atoms'
-import { Definition, Database, SearchHistoryItem } from '../../interfaces'
+import { Definition, SearchHistoryItem } from '../../interfaces'
 import { getDefinitionsForWords, getRandomWords, formatWordForDisplay } from '../../utils'
 
-interface StudyProps {
-  db: Database | null
-}
-
-const Study: React.FC<StudyProps> = ({ db }) => {
+const Study: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const [history, setHistory] = useAtom(historyAtom)
-  const [showWordFirst, setShowWordFirst] = useState(() => 
+  const [showWordFirst, setShowWordFirst] = useState(() =>
     searchParams.get('showWordFirst') === 'true' ? true : searchParams.get('showWordFirst') === 'false' ? false : true
   )
-  const [useHistory, setUseHistory] = useState(() => 
+  const [useHistory, setUseHistory] = useState(() =>
     searchParams.get('useHistory') === 'true' ? true : searchParams.get('useHistory') === 'false' ? false : true
   )
   const [currentCard, setCurrentCard] = useState<Definition | null>(null)
   const [isFlipped, setIsFlipped] = useState(false)
   const [allWords, setAllWords] = useState<Definition[]>([])
-  const [cachedWords, setCachedWords] = useState<Definition[]>([])
+  const [historyDefinitions, setHistoryDefinitions] = useState<Record<string, Definition[]>>({})
   const [touchStart, setTouchStart] = useState<number | null>(null)
   const [isInitializing, setIsInitializing] = useState(true)
 
   useEffect(() => {
-    if (!db) return
-    
+    let cancelled = false
     setIsInitializing(true)
-    
-    // Use cached words if available, otherwise generate new ones
-    if (cachedWords.length === 0) {
-      // Load fewer random words initially for faster startup
-      const randomWords = getRandomWords(db, 20)
-      setAllWords(randomWords)
-      
-      // Load additional words in background and cache them
-      setTimeout(() => {
-        const additionalWords = getRandomWords(db, 80)
-        const fullWordList = [...randomWords, ...additionalWords]
-        setAllWords(fullWordList)
-        setCachedWords(fullWordList)
-      }, 100)
-    } else {
-      // Use cached words for instant response
-      setAllWords(cachedWords)
+
+    ;(async () => {
+      const initial = await getRandomWords(20)
+      if (cancelled) return
+      setAllWords(initial)
+      setIsInitializing(false)
+
+      const more = await getRandomWords(80)
+      if (cancelled) return
+      setAllWords([...initial, ...more])
+    })()
+
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (!useHistory || history.length === 0) {
+      setHistoryDefinitions({})
+      return
     }
-    
-    loadNextCard()
-    setIsInitializing(false)
-  }, [useHistory, history, db, cachedWords.length])
+    let cancelled = false
+    ;(async () => {
+      const map = await getDefinitionsForWords(history.map(item => item.word))
+      if (!cancelled) setHistoryDefinitions(map)
+    })()
+    return () => { cancelled = true }
+  }, [useHistory, history])
 
   const loadNextCard = () => {
     let wordsToUse: Definition[] = []
-    
+
     if (useHistory && history.length > 0) {
-      // Get actual definitions for history words using batched query
       const historyWords: Definition[] = []
-      const historyWordNames = history.map(item => item.word)
-      const wordDefinitionsMap = getDefinitionsForWords(db, historyWordNames)
-      
-      historyWordNames.forEach(word => {
-        const definitions = wordDefinitionsMap[word.toLowerCase()] || []
+      history.forEach(item => {
+        const definitions = historyDefinitions[item.word.toLowerCase()] || []
         if (definitions.length > 0) {
-          // Select a random definition for this word
           const randomDefinition = definitions[Math.floor(Math.random() * definitions.length)]
           historyWords.push(randomDefinition)
         }
@@ -86,6 +81,12 @@ const Study: React.FC<StudyProps> = ({ db }) => {
     setIsFlipped(false)
   }
 
+  useEffect(() => {
+    if (isInitializing) return
+    loadNextCard()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInitializing, useHistory, allWords, historyDefinitions])
+
   const handleCardClick = () => {
     setIsFlipped(!isFlipped)
   }
@@ -100,7 +101,6 @@ const Study: React.FC<StudyProps> = ({ db }) => {
 
   const handleExpand = () => {
     if (currentCard) {
-      // Add to history with 'book' category when expanding from study mode
       const newHistoryItem: SearchHistoryItem = {
         word: currentCard.word,
         timestamp: new Date().toISOString(),
@@ -108,8 +108,6 @@ const Study: React.FC<StudyProps> = ({ db }) => {
       }
       const newHistory = [newHistoryItem, ...history]
       setHistory(newHistory)
-      
-      // Navigate directly without calling onWordClick to avoid duplicate history entry
       navigate(`/word/${encodeURIComponent(currentCard.word)}?category=book`)
     }
   }
@@ -138,7 +136,6 @@ const Study: React.FC<StudyProps> = ({ db }) => {
     const touchEnd = e.changedTouches[0].clientX
     const diff = touchStart - touchEnd
 
-    // Minimum swipe distance
     if (Math.abs(diff) > 50) {
       loadNextCard()
     }
@@ -262,7 +259,7 @@ const Study: React.FC<StudyProps> = ({ db }) => {
         </div>
 
       <div className="flashcard-container">
-        <div 
+        <div
           className={`flashcard ${isFlipped ? 'flipped' : ''}`}
           onClick={handleCardClick}
           onTouchStart={handleTouchStart}

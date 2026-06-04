@@ -4,9 +4,9 @@ export const AVAILABLE_DATABASES: DatabaseInfo[] = [
   {
     id: 'wordnet-full',
     name: 'WordNet Full Dictionary',
-    url: '/wordnetFull.db',
-    filename: 'wordnetFull.db',
-    size: '45MB',
+    url: '/wordnet.ndjson',
+    filename: 'wordnet.ndjson',
+    size: '23MB',
     description: 'WordNet lexical database (definitions only)',
     downloaded: false,
     enabled: false,
