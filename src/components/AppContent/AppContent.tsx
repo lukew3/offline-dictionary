@@ -162,11 +162,6 @@ const AppContent = () => {
   const escapeHtml = (str: string | null | undefined): string => {
     if (str === null || str === undefined) return ''
     return String(str)
-      .replace(/&/g, '&')
-      .replace(/</g, '<')
-      .replace(/>/g, '>')
-      .replace(/"/g, '"')
-      .replace(/'/g, '&#039;')
   }
 
   const handleWordClick = (word: string, source?: string) => {
