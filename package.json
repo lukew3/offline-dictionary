@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "tunnel": "cloudflared tunnel --url http://localhost:3000",
-    "dev:tunnel": "concurrently \"vite\" \"cloudflared tunnel --url http://localhost:3000\"",
+    "dev:tunnel": "concurrently \"vite --port 3001\" \"cloudflared tunnel --url http://localhost:3001\"",
     "build": "vite build",
     "preview": "vite preview"
   },
